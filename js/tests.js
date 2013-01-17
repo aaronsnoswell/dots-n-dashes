@@ -241,7 +241,7 @@ var tests;
      * Tests the CoreGame._dash_exists function
      * @precondition Assumes the CoreGame.add_dash function works
      */
-    function t__CoreGame_dash_exists() {
+    function t_CoreGame__dash_exists() {
         setup("CoreGame._dash_exists");
 
         // Positive functional tests

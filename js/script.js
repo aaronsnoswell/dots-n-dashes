@@ -29,10 +29,28 @@ var DnD = {};
      * @param Dot d2 The second Dot this dash connects with
      */
     DnD.Dash = function(player_id, dash_id, d1, d2) {
-        this.player_id = player_id;
-        this.dash_id = dash_id;
-        this.d1 = d1;
-        this.d2 = d2;
+        var dsh = this;
+
+        dsh.player_id = player_id;
+        dsh.dash_id = dash_id;
+        dsh.d1 = d1;
+        dsh.d2 = d2;
+
+        /**
+         * Checks if this dash is horizontal or not
+         * @return Boolean true if this dash is horizontal, false otherwise
+         */
+        dsh.is_horiz = function() {
+            return (dsh.d1.r === dsh.d2.r);
+        }
+
+        /**
+         * Checks if this dash is vertical or not
+         * @return Boolean true if this dash is vertical, false otherwise
+         */
+        dsh.is_vert = function() {
+            return !dsh.is_horiz();
+        }
     }
 
     /**
@@ -55,12 +73,12 @@ var DnD = {};
     /**
      * An implementation of the Dots and Dashes game
      */
-    DnD.CoreGame = function() {
+    DnD.CoreGame = function(width, height) {
         var gme = this;
 
-        gme.BOARD_WIDTH = 10;
-        gme.BOARD_HEIGHT = 10;
-
+        gme.BOARD_WIDTH = (width === undefined) ? 10 : width;
+        gme.BOARD_HEIGHT = (height === undefined) ? 10 : height;
+        
         gme.board_dashes = [];
         gme.board_boxes = [];
 
@@ -102,38 +120,107 @@ var DnD = {};
          */
         gme.check_scores = function() {
 
-            /* For each possible box on the board, check for the existance of the
-             * four edge dashes
+            // Step 1: Collect a list of box locations that are 'near' dashes
+            var box_locations = [];
+
+            for(var i=0; i<gme.board_dashes.length; i++) {
+                var dash = gme.board_dashes[i];
+                var dash_box_locations = gme._box_locations_near_dash(dash);
+
+                box_locations.concat(dash_box_locations);
+            }
+
+            /* Step 2: Tally the occurences of each box location within the
+             * list
              */
-            for(var i=0; i<gme.BOARD_WIDTH-1; i++) {
-                for(var j=0; j<gme.BOARD_HEIGHT-1; j++) {
-                    var edge_dashes = gme._find_box_dashes(i, j);
-
-                    if(edge_dashes.length == 4) {
-
-                        // If gme box has already been claimed, don't add it again
-                        if(!gme._box_exists(edge_dashes[0], edge_dashes[1], edge_dashes[2], edge_dashes[3])) {
-                            var player_id = gme._newest_dash(edge_dashes).player_id;
-                            
-                            // Add a box
-                            gme.board_boxes.push(new Box(
-                                player_id,
-                                edge_dashes[0],
-                                edge_dashes[1],
-                                edge_dashes[2],
-                                edge_dashes[3]
-                            ));
-
-                            // Update the score board
-                            if(typeof gme.player_scores[player_id] == undefined) {
-                                gme.player_scores[player_id] = 0;
-                            }
-                            gme.player_scores[player_id]++;
-
-                        }
-                    }
+            var tally = {};
+            for(var i=0; i<box_locations.length; i++) {
+                // XXX HACK ajs 09/jan/13 Dodgy conversion to a string key here
+                // Should use a toJSON or some dual key hash instead
+                var e = box_locations[i],
+                    e_str = e.r + "_" + e.c;
+                if(tally[e] === undefined) {
+                    tally[e] = 0;
+                } else {
+                    tally[e]++;
                 }
             }
+
+            // Step 3: Any box location with exactly 4 occurences is a box
+            for(var i in tally) {
+                if(!tally.hasOwnProperty(i)) continue;
+                var count = tally[i];
+
+                if(count === 4) {
+                    // We have a box!
+
+                    // XXX HACK ajs 09/jan/13 Dodgy string key parsing here
+                    var r = Number(i.split("_")[0]),
+                        c = Number(i.split("_")[1]),
+                        dashes = gme._find_box_dashes(r, c),
+                        box_owner = gme._newest_dash(dashes).player_id;
+
+                    if(!gme._box_exists(dashes)) {
+                        // Update box and score records
+                        gme.board_boxes.push(new DnD.Box(owner, dashes[0], dashes[1], dashes[2], dashes[3]));
+
+                        if(!gme.player_scores[box_owner]) gme.player_scores[box_owner] = 0;
+                        gme.player_scores[box_owner]++;
+                    }
+
+                } else if(count > 4) {
+                    // This should never happen
+                    console.log("ERROR: Box location occured more than 4 times - duplicate dashes must exist");
+                }
+            }
+
+        }
+
+        /**
+         * Returns the 0-based coordinates for any potential boxes that the
+         *  given dash would be a part of
+         * @param Dash dash The Dash object of interest
+         * @return Array An array of maps, each with two 0-based integer
+         *  Number properties, r and c, indicating the location of a potential
+         *  box on the game field
+         * @precondition dash must be a valid Dash object
+         */
+        gme._box_locations_near_dash = function(dash) {
+            var box_locations = [];
+
+            if(dash.is_horiz()) {
+                // Possible boxes are above and below
+                if(dash.d1.r > 0) {
+                    box_locations.push({
+                        r: dash.d1.r - 1,
+                        c: dash.d1.c
+                    });
+                }
+
+                if(dash.d1.r < gme.BOARD_HEIGHT-1) {
+                    box_locations.push({
+                        r: dash.d1.r + 1,
+                        c: dash.d1.c
+                    });
+                }
+            } else if(dash.is_vert()) {
+                // Possible boxes are to the left and right
+                if(dash.d1.c > 0) {
+                    box_locations.push({
+                        r: dash.d1.r,
+                        c: dash.d1.c - 1
+                    });
+                }
+
+                if(dash.d1.c < gme.BOARD_WIDTH-1) {
+                    box_locations.push({
+                        r: dash.d1.r,
+                        c: dash.d1.c + 1
+                    });
+                }
+            }
+
+            return box_locations;
         }
 
         /**
@@ -214,25 +301,21 @@ var DnD = {};
         /**
          * Checks if a Box made of the given 4 dashes already exists on the
          *  game board
-         * @param Dash d1 The first Dash of interest
-         * @param Dash d1 The first Dash of interest
-         * @param Dash d1 The first Dash of interest
-         * @param Dash d1 The first Dash of interest
+         * @param Array dashes An array of the four valid Dash objects of
+         *  interest
          * @return Boolean true if the specified Box exists, false otherwise
          */
-        gme._box_exists = function(d1, d2, d3, d4) {
+        gme._box_exists = function(dashes) {
 
             for(var i=0; i<gme.board_boxes.length; i++) {
                 var box = gme.board_boxes[i];
 
                 var box_dashes = [box.d1, box.d2, box.d3, box.d4];
-                var test_dashes = [d1, d2, d3, d4];
-                if(Utils.compare_arrays(box_dashes, test_dashes)) {
+                if(Utils.compare_arrays(box_dashes, dashes)) {
                     return true;
                 }
             }
 
-            console.log("Box doesn't exist");
             return false;
         }
 
